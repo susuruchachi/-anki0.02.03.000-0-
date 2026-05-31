@@ -15,25 +15,6 @@ function renderBox() {
     const currentCat = currentViewContext.value;
     const subCats = getAllSubcategories(currentCat); 
     filtered = db.filter(q => subCats.includes(q.category));
-    
-    // --- box.js の renderBox() 内 ---
-
-  if (typeof currentViewContext === 'object' && currentViewContext.type === 'category') {
-    const currentCat = currentViewContext.value;
-    const subCats = getAllSubcategories(currentCat); 
-    filtered = db.filter(q => subCats.includes(q.category));
-    titleString = `🔖 ${currentCat}`;
-    
-    // ★ここに以下のソート処理を追加
-    filtered.sort((a, b) => {
-      if (a.category === currentCat && b.category !== currentCat) return -1;
-      if (a.category !== currentCat && b.category === currentCat) return 1;
-      if (a.category < b.category) return -1;
-      if (a.category > b.category) return 1;
-      return 0;
-    });
-    // ★ここまで追加
-    
     titleString = `🔖 ${currentCat}`;
     
     // ★ 下位カテゴリー・上位階層への移動ボタンを生成
@@ -109,22 +90,7 @@ function renderBox() {
     return; 
   }
 
-// ★ filtered.forEach の直前にこの変数を追加
-  let currentRenderCategory = null;
-
   filtered.forEach(item => {
-  
-  // ★ ここから追加（カテゴリーが変わるタイミングで見出しを挿入）
-    if (typeof currentViewContext === 'object' && currentViewContext.type === 'category') {
-      if (currentRenderCategory !== item.category) {
-        currentRenderCategory = item.category;
-        const catHeader = document.createElement('div');
-        catHeader.style.cssText = 'padding: 6px 10px; margin: 15px 0 5px 0; background: var(--bg2); border-left: 4px solid var(--primary); font-size: 0.9rem; font-weight: bold; border-radius: 0 4px 4px 0; color: var(--text);';
-        catHeader.innerText = currentRenderCategory === currentViewContext.value ? '📂 直接入っている問題' : `📁 下位カテゴリー: ${currentRenderCategory}`;
-        container.appendChild(catHeader);
-      }
-    }
-  
     const isGrad = item.correct >= th;
     const card = document.createElement('div'); card.className = 'q-card';
     setupLongpress(card, () => handleQuestionLongpress(item));
