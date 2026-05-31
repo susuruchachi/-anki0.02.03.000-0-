@@ -7,7 +7,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
 <script src="https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap');
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; -webkit-touch-callout: none; }
@@ -27,17 +26,6 @@ input, textarea, select { user-select: auto; -webkit-user-select: auto; font-fam
 .app-container { display: flex; flex-direction: column; height: 100dvh; width: 100vw; position: relative; }
 .screen { flex: 1; display: none; flex-direction: column; overflow-y: auto; padding: 20px; padding-bottom: calc(30px + env(safe-area-inset-bottom)); touch-action: pan-y; overscroll-behavior-y: contain; }
 .screen.active { display: flex; }
-
-/* ★ Markdown 用スタイル */
-.md-content h1 { font-size:1.3rem; border-bottom:1px solid var(--border); padding-bottom:5px; margin-bottom:15px; color:var(--primary); }
-.md-content h2 { font-size:1.15rem; border-bottom:1px solid var(--border); padding-bottom:4px; margin-top:20px; margin-bottom:10px; color:var(--text); }
-.md-content h3 { font-size:1rem; margin-top:15px; margin-bottom:8px; color:var(--text); }
-.md-content ul, .md-content ol { padding-left:20px; margin-bottom:15px; }
-.md-content li { margin-bottom:4px; }
-.md-content p { margin-bottom:15px; line-height:1.6; }
-.md-content table { width:100%; border-collapse:collapse; margin-bottom:15px; }
-.md-content th, .md-content td { border:1px solid var(--border); padding:6px 10px; text-align:left; font-size: 0.85rem;}
-.md-content th { background:var(--bg3); font-weight:bold; }
 
 header { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; background: var(--bg2); border-bottom: 1px solid var(--border); z-index: 10; }
 .logo-area { display: flex; align-items: center; gap: 8px; cursor: pointer; }
@@ -271,13 +259,56 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
   </div>
   
   <div id="pgTutorial" class="screen">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-      <h2>📖 使い方ガイド</h2>
-      <button class="btn btn-secondary" style="width:auto; padding:6px 12px; font-size:0.85rem;" onclick="openPage('pgHome')">戻る</button>
+    <h2>📖 すするanki 完全使い方ガイド</h2>
+    <div class="card">
+      <div class="setting-box-title">1. アプリの目的と基本</div>
+      <p style="font-size:0.85rem; line-height:1.6; color:var(--text);">
+        「すするanki」は、学習を自動で最適化する暗記アプリです。正解するとレベルが上がり、間違えるとレベルが下がる仕組みで、<b>苦手な問題だけを抽出して効率よく復習</b>できます。
+      </p>
     </div>
-    <div class="card md-content" id="tutorialContent" style="font-size:0.85rem; padding:20px;">
-      <p style="text-align:center; color:var(--text3);">ガイドを読み込み中...</p>
+
+    <div class="card">
+      <div class="setting-box-title">2. 問題の作り方 (カードの追加)</div>
+      <ul style="font-size:0.85rem; line-height:1.6; color:var(--text); padding-left:20px;">
+        <li style="margin-bottom:6px;"><b>📁 フォルダー作成：</b>「構造エクスプローラー」から新しいフォルダーを作ります。既存のフォルダーを<b>長押し</b>すると、中にサブフォルダーを作れます。</li>
+        <li style="margin-bottom:6px;"><b>📝 問題追加：</b>「問題カード箱」で「➕ 新規追加」を押すか、フォルダーを長押しして一括追加します。</li>
+        <li><b>💡 編集・削除：</b>問題カード箱でカードを<b>長押し</b>すると、編集や別フォルダーへの移動ができます。</li>
+      </ul>
     </div>
+
+    <div class="card">
+      <div class="setting-box-title">3. クイズで学習する</div>
+      <ul style="font-size:0.85rem; line-height:1.6; color:var(--text); padding-left:20px;">
+        <li style="margin-bottom:6px;"><b>🎯 出題範囲：</b>ホーム画面で「全てから出題」か「特定のフォルダー」を選びます。</li>
+        <li style="margin-bottom:6px;"><b>🗂️ 出題モード：</b>
+          <ul style="padding-left:15px; margin-top:4px; color:var(--text2);">
+            <li><b>記述式:</b> 答えを直接入力（全角半角、スペースの違いは自動吸収）</li>
+            <li><b>4択択一:</b> 選択肢から選ぶ</li>
+            <li><b>みんはや形式:</b> 1文字ずつ4択で選ぶ</li>
+            <li><b>文字タップ:</b> 画面の文字を順番にタップ</li>
+            <li><b>自己申告:</b> 脳内で答えを思い浮かべ、自分で「完璧・普通・ミス」を判定</li>
+          </ul>
+        </li>
+        <li><b>🔥 集中特訓：</b>レベルが低い（苦手な）カードだけを抽出して特訓します。</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="setting-box-title">4. 共有・公開カテゴリー (ソーシャル機能)</div>
+      <ul style="font-size:0.85rem; line-height:1.6; color:var(--text); padding-left:20px;">
+        <li style="margin-bottom:6px;"><b>🌐 公開と購読：</b>フォルダーを長押しして「公開カテゴリーに設定」すると、世界中の人があなたの問題を「購読（インポート）」して遊べるようになります。</li>
+        <li style="margin-bottom:6px;"><b>🔒 編集権限のロック：</b>他人が作った共有カテゴリーを購読した場合、<b>あなたは閲覧専用（学習のみ可能）</b>となり、勝手に問題を編集・削除することはできません（自分の学習記録は保存されます）。</li>
+        <li><b>👑 共同編集：</b>作成者があなたを「フレンド」として共同編集者に指定した場合のみ、問題の追加や編集が可能になり、全員にリアルタイムで同期されます。</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="setting-box-title">5. データのバックアップと同期</div>
+      <p style="font-size:0.85rem; line-height:1.6; color:var(--text);">
+        「管理・設定」タブからGoogleアカウントでログインすると、あなたのデータはクラウドに安全に自動保存されます。スマホとPCなど、複数の端末でデータを同期して学習できます。
+      </p>
+    </div>
+    <button class="btn btn-secondary" style="margin-top:10px;" onclick="openPage('pgHome')">🏠 ホームに戻る</button>
   </div>
 
   <div id="pgTree" class="screen">
@@ -412,22 +443,6 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
         <textarea id="txtUpdContent" class="form-control" style="height:120px; font-size:0.85rem;" placeholder="アップデート内容をここに入力..."></textarea>
       </div>
       <button class="btn btn-accent" onclick="postUpdate()">🚀 お知らせを配信する</button>
-      <hr style="border:0; border-top:1px solid var(--border); margin:15px 0;">
-      <div class="setting-box-title" style="color: var(--accent);">📥 ユーザーからのバグ報告・要望一覧</div>
-      <button class="btn btn-secondary" style="margin-bottom:10px; padding:6px 12px; font-size:0.8rem; width:auto;" onclick="loadUserReports()">🔄 更新</button>
-      <div id="adminReportsList" style="display:flex; flex-direction:column; gap:10px; max-height:400px; overflow-y:auto; padding:5px;"></div>
-      <hr style="border:0; border-top:1px solid var(--border); margin:15px 0;">
-      <div class="setting-box-title" style="color: var(--accent);">📥 バグ報告・要望 CSVインポート</div>
-      <div class="form-row">
-        <button class="btn btn-secondary" onclick="document.getElementById('fileReportCSV').click()">エクセル/CSVを選択してインポート</button>
-        <input type="file" id="fileReportCSV" accept=".csv, text/csv" style="display:none;" onchange="importReportCSV(event)">
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="setting-box-title">💡 バグ報告・機能の要望</div>
-      <textarea id="txtUserReport" class="form-control" style="height:80px; font-size:0.85rem; margin-bottom:10px;" placeholder="アプリのバグや「こんな機能が欲しい！」など、ご自由に送信してください。"></textarea>
-      <button class="btn btn-secondary" onclick="submitUserReport()">送信する</button>
     </div>
     
     <div class="card">
@@ -556,10 +571,10 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
     <div class="card" style="background:linear-gradient(135deg, var(--bg3) 0%, var(--bg4) 100%); border-color:var(--accent);">
       <div style="display:flex; gap:10px; margin-bottom:15px;">
         <button class="btn btn-accent" style="flex:1;" onclick="startOnlineMatching()">
-          <i style="margin-right:8px;">🎲</i>ランダムマッチ
+          <i style="margin-right:8px;">🎯</i>マッチング開始
         </button>
         <button class="btn btn-secondary" style="flex:1;" onclick="createQuickMatch()">
-          <i style="margin-right:8px;">🔑</i>合言葉で対戦
+          <i style="margin-right:8px;">⚡</i>招待リンク作成
         </button>
       </div>
     </div>
@@ -586,7 +601,7 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
       <p style="color:var(--text); font-weight:500; margin-bottom:8px;">💡 対戦の流れ</p>
       <ol style="color:var(--text2); font-size:0.85rem; padding-left:20px; line-height:1.6;">
         <li>カテゴリーと設定を選択</li>
-        <li>「ランダム」か「合言葉」を選択</li>
+        <li>「マッチング開始」をタップ</li>
         <li>相手が見つかるまで待機</li>
         <li>同時にクイズ開始（リアルタイム）</li>
         <li>成績比較・ランキング更新</li>

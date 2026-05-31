@@ -32,7 +32,7 @@ function isAnswerCorrect(input, correctAnswer) {
   return norms.includes(inNorm);
 }
 
-async function startQuiz(modeType = 'normal') {
+function startQuiz(modeType = 'normal') {
   currentCombo = 0; todayCorrectCount = 0;
   if (lastQuizScopePath.length > 0) selectedScopePath = [...lastQuizScopePath];
   let scope = "all";
@@ -53,35 +53,8 @@ async function startQuiz(modeType = 'normal') {
     subset = subset.filter(q => targets.includes(q.category));
   }
 
-  // ★ オンライン対戦時はホスト（player1）が問題を生成して相手に共有する
-  if (window.currentOnlineMatch) {
-      if (window.currentOnlineMatch.myRole === 'player1') {
-          if(subset.length === 0) { alert("⚠️ 問題が見つかりません。"); return; }
-          for (let i = subset.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [subset[i], subset[j]] = [subset[j], subset[i]]; }
-          quizPool = subset.slice(0, limitCount);
-          if (document.getElementById('chkSwapQA').checked) quizPool = quizPool.map(q => ({ ...q, question: q.answer, answer: q.question }));
-          
-          await firestore.collection('susuru_anki_match_rooms').doc(window.currentOnlineMatch.roomId).update({
-              quizPool: quizPool
-          });
-          quizIndex = 0;
-          openPage('pgQuizPlayer');
-          loadQuizQuestion();
-      } else {
-          // ゲスト（player2）は問題が降ってくるまで待機する
-          openPage('pgQuizPlayer');
-          document.getElementById('lblQuizQuestion').innerText = "ホストが問題を作成・同期中...";
-          document.getElementById('lblQuizProgress').innerText = "WAIT";
-          quizPool = [];
-          ['boxChoiceArea','boxDescArea','boxMinhayaArea','boxSelfArea', 'boxTapArea', 'btnQuizAction', 'btnQuizPass'].forEach(id => {
-              const el = document.getElementById(id); if(el) el.style.display='none';
-          });
-      }
-      return;
-  }
-
-  // 以下通常のソロプレイ処理
   if(subset.length === 0) return alert("⚠️ 条件に合致する問題が見つかりませんでした。");
+  
   const prioritize = (q) => {
     if (q.level === 0 && (q.correct > 0 || q.incorrect > 0)) return 1;
     if (q.level === -1) return 2;
@@ -120,33 +93,18 @@ function loadQuizQuestion() {
   else if(mode==='self') { document.getElementById('boxSelfArea').style.display='block'; buildSelfMode(cur); document.getElementById('btnQuizAction').style.display='none'; document.getElementById('btnQuizPass').style.display='none'; }
   else { document.getElementById('boxDescArea').style.display='block'; document.getElementById('txtDescAnswer').value=''; document.getElementById('txtDescAnswer').disabled=false; document.getElementById('txtDescAnswer').focus(); }
 
-  let base = 15;
-  if (window.currentOnlineMatch && window.currentOnlineMatch.timeLimit) {
-    base = window.currentOnlineMatch.timeLimit;
-    // ★ オンライン対戦でも答えの文字数に応じて時間を延長
-    if(cur.answer.length > 5) base += Math.min(15, (cur.answer.length - 5) * 1.5);
-  } else {
-    const speed = document.getElementById('selQuizSpeed').value;
-    if(speed==='easy') base=25; else if(speed==='hard') base=10; else if(speed==='expert') base=5;
-    if(cur.answer.length > 5) base += Math.min(15, (cur.answer.length - 5) * 1.5);
-    if(document.getElementById('chkTimeAttack').checked) base *= 0.5;
-  }
+  const speed = document.getElementById('selQuizSpeed').value;
+  let base = 15; if(speed==='easy') base=25; else if(speed==='hard') base=10; else if(speed==='expert') base=5;
+  if(cur.answer.length > 5) base += Math.min(15, (cur.answer.length - 5) * 1.5);
+  if(document.getElementById('chkTimeAttack').checked) base *= 0.5;
 
   quizTimeLimit = base; quizTimeLeft = base;
-  stopQuizTimer(); updateTimerUI();
+  clearInterval(quizTimer); updateTimerUI();
   
   let hintShown = false; document.getElementById('lblQuizHint').style.display = 'none';
-  const speed = document.getElementById('selQuizSpeed').value;
-  const _timerStart = Date.now();
-  const _timerBase = base;
   quizTimer = setInterval(() => {
-    quizTimeLeft = Math.max(0, _timerBase - (Date.now() - _timerStart) / 1000);
-    updateTimerUI();
-    if (quizTimeLeft <= 0) {
-      stopQuizTimer();
-      evaluateRoundAnswer(false, "⏰ 時間切れ");
-      return;
-    }
+    quizTimeLeft -= 0.1; updateTimerUI();
+    if(quizTimeLeft<=0) { clearInterval(quizTimer); evaluateRoundAnswer(false, "⏰ 時間切れ"); }
     if (speed !== 'expert' && !hintShown && quizTimeLeft < (quizTimeLimit * (speed === 'easy' ? 0.7 : 0.4))) {
       hintShown = true; const hb = document.getElementById('lblQuizHint');
       const ans1 = cur.answer.split(/[/|]/)[0].trim();
@@ -161,12 +119,6 @@ function updateTimerUI() {
   const bar = document.getElementById('barTimerFill'); bar.style.width=`${pct}%`;
   bar.className = `timer-bar-fill ${pct<30?'warning':''}`;
   document.getElementById('lblQuizTimerText').innerText = `${Math.max(0, quizTimeLeft).toFixed(1)}s`;
-}
-
-
-// ★ タイマーを確実に止めるヘルパー（quizTimer = null まで行う）
-function stopQuizTimer() {
-  if (quizTimer) { clearInterval(quizTimer); quizTimer = null; }
 }
 
 function getPrimaryAnswer(ans) { return ans.split(/[/|]/)[0].trim(); }
@@ -227,7 +179,7 @@ function renderMinhayaDisplay(cur) {
   area.appendChild(slotsDiv);
   if (minhayaPos >= minhayaTarget.length) return;
 
-  // ★ みんはや重複防止の完全版
+  // ★ 改善箇所：正解に含まれる文字をダミー文字候補から完全に除外する
   const correctChar = minhayaTarget[minhayaPos];
   let distChars = [];
   const targetChars = minhayaTarget.split('');
@@ -237,14 +189,9 @@ function renderMinhayaDisplay(cur) {
   }));
   distChars = [...new Set(distChars)].sort(() => Math.random() - 0.5);
   
-  let choices = [correctChar];
-  for (let c of distChars) {
-      if (choices.length < 4 && !choices.includes(c)) choices.push(c);
-  }
-  const fallbacks = 'あいうえおかきくけこさしすせそ'.split('').sort(() => Math.random() - 0.5);
-  for (let c of fallbacks) {
-      if (choices.length < 4 && !targetChars.includes(c) && !choices.includes(c)) choices.push(c);
-  }
+  let choices = [correctChar, ...distChars.slice(0, 3)];
+  const fallbacks = 'あいうえおかきくけこさしすせそ'.split('').filter(c => !targetChars.includes(c));
+  while(choices.length < 4) choices.push(fallbacks[Math.floor(Math.random()*fallbacks.length)]);
   choices.sort(() => Math.random() - 0.5);
 
   const choicesDiv = document.createElement('div'); choicesDiv.style.cssText = 'display:grid; grid-template-columns:1fr 1fr; gap:10px;';
@@ -254,9 +201,9 @@ function renderMinhayaDisplay(cur) {
       if (quizPhase !== 'q') return;
       if (c === correctChar) {
         minhayaPos++;
-        if (minhayaPos >= minhayaTarget.length) { stopQuizTimer(); evaluateRoundAnswer(true, "🎉 正解！"); } else renderMinhayaDisplay(cur);
+        if (minhayaPos >= minhayaTarget.length) { clearInterval(quizTimer); evaluateRoundAnswer(true, "🎉 正解！"); } else renderMinhayaDisplay(cur);
       } else {
-        stopQuizTimer(); btn.style.background = 'rgba(255,79,106,0.3)'; btn.style.borderColor = 'var(--danger)';
+        clearInterval(quizTimer); btn.style.background = 'rgba(255,79,106,0.3)'; btn.style.borderColor = 'var(--danger)';
         setTimeout(() => evaluateRoundAnswer(false, "❌ 不正解"), 300);
       }
     };
@@ -283,7 +230,7 @@ function buildTapChoices(cur) {
       if (quizPhase !== 'q') return;
       currentTapInput.push({ char: c, id: btn.id }); btn.style.display = 'none'; renderTapInput();
       if (currentTapInput.length === currentTapTarget.length) {
-        stopQuizTimer();
+        clearInterval(quizTimer);
         const inputStr = currentTapInput.map(x => x.char).join('');
         evaluateRoundAnswer(inputStr === currentTapTarget, inputStr === currentTapTarget ? "🎉 正解！" : "❌ 不正解");
       }
@@ -308,7 +255,7 @@ function renderTapInput() {
 
 function buildSelfMode(cur) { document.getElementById('btnShowAnswer').style.display = 'inline-flex'; document.getElementById('selfJudgeArea').style.display = 'none'; }
 function showSelfAnswer() {
-  stopQuizTimer(); document.getElementById('btnShowAnswer').style.display = 'none';
+  clearInterval(quizTimer); document.getElementById('btnShowAnswer').style.display = 'none';
   document.getElementById('selfAnswerDisplay').innerText = `A: ${getPrimaryAnswer(quizPool[quizIndex].answer)}`;
   document.getElementById('selfJudgeArea').style.display = 'block';
 }
@@ -317,41 +264,16 @@ function submitSelfMode(judge) {
   evaluateRoundAnswer(judge !== 'miss', judge === 'perfect' ? "🎉 完璧！" : judge === 'good' ? "👍 普通" : "❌ ミス");
 }
 
-function passQuizQuestion() {
-  stopQuizTimer();
-  evaluateRoundAnswer(false, "🏳️ パスしました");
-}
+function passQuizQuestion() { clearInterval(quizTimer); evaluateRoundAnswer(false, "🏳️ パスしました"); }
 
 function submitQuizAction() {
   if (quizPhase === 'a') {
-    clearTimeout(autoNextTimeout); 
-    quizIndex++;
-    if(quizIndex < quizPool.length) {
-      loadQuizQuestion();
-    } else {
-      lastQuizScopePath = [...selectedScopePath];
-      // ★ 対戦時は相手の終了を待つ処理
-      if (window.currentOnlineMatch) {
-          document.getElementById('lblQuizQuestion').innerText = "対戦相手が終了するのを待っています...";
-          document.getElementById('lblQuizProgress').innerText = "FIN";
-          ['boxChoiceArea','boxDescArea','boxMinhayaArea','boxSelfArea', 'boxTapArea', 'btnQuizAction', 'btnQuizPass'].forEach(id => {
-              const el = document.getElementById(id); if(el) el.style.display='none';
-          });
-          document.getElementById('quizFeedback').style.display = 'none';
-
-          // 全問解き終わったことを相手に通知
-          firestore.collection('susuru_anki_match_rooms').doc(window.currentOnlineMatch.roomId).update({
-              [window.currentOnlineMatch.myRole + '.finished']: true
-          }).catch(()=>{});
-      } else {
-          alert("🏁 クイズ終了！実績を確認しましょう。");
-          openPage('pgStats');
-      }
-    }
+    clearTimeout(autoNextTimeout); quizIndex++;
+    if(quizIndex < quizPool.length) loadQuizQuestion();
+    else { lastQuizScopePath = [...selectedScopePath]; alert("🏁 クイズ終了！実績を確認しましょう。"); openPage('pgStats'); }
     return;
   }
-  
-  stopQuizTimer();
+  clearInterval(quizTimer);
   const cur = quizPool[quizIndex]; let isCorrect = false;
   const mode = document.getElementById('selQuizMode').value;
   if (mode === 'choice') { if(!selectedChoiceIdx) return; isCorrect = isAnswerCorrect(selectedChoiceIdx, cur.answer); } 
@@ -360,23 +282,9 @@ function submitQuizAction() {
 }
 
 function evaluateRoundAnswer(isCorrect, head) {
-  if (quizPhase === 'a') return; // 二重呼び出し防止
   quizPhase = 'a'; const cur = quizPool[quizIndex];
-  
-  if(isCorrect) {
-    currentCombo++; todayCorrectCount++; showComboAnim(); recordDailyLog(true);
-    // ★ オンライン対戦なら自分のスコアをFirebaseに送信（即時反映）
-    if (window.currentOnlineMatch) {
-      firestore.collection('susuru_anki_match_rooms').doc(window.currentOnlineMatch.roomId)
-        .update({ [window.currentOnlineMatch.myRole + '.score']: firebase.firestore.FieldValue.increment(1) })
-        .catch(e => console.warn("スコア送信エラー:", e));
-    }
-  } else {
-    currentCombo = 0; recordDailyLog(false);
-  }
-
-  // ローカル学習記録の更新 (自分が持っている問題の場合のみ)
   let m = db.find(q => q.id === cur.id);
+  
   if(m) {
     if(m.wrongStreak === undefined) m.wrongStreak = 0; if(m.shikkariStreak === undefined) m.shikkariStreak = 0;
     const mode = document.getElementById('selQuizMode').value;
@@ -384,7 +292,7 @@ function evaluateRoundAnswer(isCorrect, head) {
     const th = currentQuestionGradThreshold;
 
     if(isCorrect) {
-      m.correct++; recordCategoryScore(m.category, true);
+      m.correct++; currentCombo++; todayCorrectCount++; showComboAnim(); recordDailyLog(true); recordCategoryScore(m.category, true);
       if (mode === 'self' && window.currentSelfJudge === 'good') m.wrongStreak = 0;
       else { m.streak++; m.wrongStreak = 0; }
       
@@ -397,7 +305,7 @@ function evaluateRoundAnswer(isCorrect, head) {
       }
     } else {
       m.incorrect++; m.wrongStreak++; m.streak = 0; m.shikkariStreak = 0;
-      recordCategoryScore(m.category, false);
+      currentCombo = 0; recordDailyLog(false); recordCategoryScore(m.category, false);
 
       if (m.correct >= th) {
         if (m.wrongStreak >= 3 * multiplier) { m.correct = th - 1; m.level = 2; m.wrongStreak = 0; }
@@ -420,14 +328,9 @@ function evaluateRoundAnswer(isCorrect, head) {
   document.getElementById('btnQuizAction').style.display = 'inline-flex';
   document.getElementById('btnQuizAction').innerText = '次の問題へ';
 
-  // ★ 答えを表示後、3秒経過で自動的に次の問題へ進む (全モード対応)
-  // iOS Safari対応: Date.now()ベースで3秒を計測
   const mode = document.getElementById('selQuizMode').value;
-  if (['choice', 'tap', 'self', 'minhaya', 'desc'].includes(mode)) {
-    clearTimeout(autoNextTimeout);
-    autoNextTimeout = setTimeout(() => {
-      if (quizPhase === 'a') submitQuizAction();
-    }, 3000);
+  if (['choice', 'tap', 'self', 'minhaya'].includes(mode)) {
+    clearTimeout(autoNextTimeout); autoNextTimeout = setTimeout(() => { if (quizPhase === 'a') submitQuizAction(); }, 3000);
   }
 }
 
