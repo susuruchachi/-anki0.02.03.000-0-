@@ -277,13 +277,26 @@ async function deletePublicCategory(docId, catName) {
 let publicCategoriesCache = []; let unsubscribePublicCategories = null;
 
 async function loadPublicCategories() {
-  const listDiv = document.getElementById('publicCategoriesList'); listDiv.innerHTML = '<div style="text-align:center; color:var(--text2);">読み込み中...</div>';
+  const listDiv = document.getElementById('publicCategoriesList');
+  if (!listDiv) return;
+  listDiv.innerHTML = '<div style="text-align:center; color:var(--text2);">読み込み中...</div>';
   try {
-    if (unsubscribePublicCategories) unsubscribePublicCategories();
-    unsubscribePublicCategories = firestore.collection("susuru_anki_shared").where('isPublic', '==', true).onSnapshot(snap => {
-        publicCategoriesCache = []; snap.forEach(doc => { publicCategoriesCache.push({ id: doc.id, ...doc.data() }); }); renderPublicCategories();
-      });
-  } catch(e) { listDiv.innerHTML = '<div style="color:var(--danger);">公開カテゴリーの読み込みに失敗しました</div>'; }
+    if (unsubscribePublicCategories) { unsubscribePublicCategories(); unsubscribePublicCategories = null; }
+    unsubscribePublicCategories = firestore.collection("susuru_anki_shared").where('isPublic', '==', true).onSnapshot(
+      snap => {
+        publicCategoriesCache = [];
+        snap.forEach(doc => { publicCategoriesCache.push({ id: doc.id, ...doc.data() }); });
+        renderPublicCategories();
+      },
+      err => {
+        console.error("公開カテゴリー読み込みエラー:", err);
+        listDiv.innerHTML = `<div style="color:var(--danger); padding:20px; text-align:center;">公開カテゴリーの読み込みに失敗しました<br><span style="font-size:0.75rem; color:var(--text3);">${err.code || err.message}</span></div>`;
+      }
+    );
+  } catch(e) {
+    console.error("loadPublicCategories catch:", e);
+    listDiv.innerHTML = `<div style="color:var(--danger); padding:20px; text-align:center;">公開カテゴリーの読み込みに失敗しました<br><span style="font-size:0.75rem; color:var(--text3);">${e.message}</span></div>`;
+  }
 }
 
 function renderPublicCategories() {

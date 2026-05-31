@@ -51,6 +51,12 @@ auth.onAuthStateChanged(user => {
     
     // ★ 管理者UI表示の更新
     if (typeof updateAdminUIVisibility === 'function') updateAdminUIVisibility();
+    
+    // ★ 招待リンク（オンライン対戦）のチェック
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('match_room') && typeof checkOnlineMatchInvite === 'function') {
+      checkOnlineMatchInvite(urlParams.get('match_room'));
+    }
   } else {
     ls.innerHTML = `<span style="color:var(--warn);">未ログイン</span>`;
     const btnLogin = document.getElementById('btnFbLogin');

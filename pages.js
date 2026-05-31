@@ -13,8 +13,26 @@ function closeMenu() {
 
 function openPage(pageId) { executePageTransition(pageId, false); }
 
+async function fetchAndRenderTutorial() {
+  const container = document.getElementById('tutorialContent');
+  if (!container || container.getAttribute('data-loaded') === 'true') return; 
+  try {
+    const res = await fetch('RULES.md');
+    if (!res.ok) throw new Error('Failed to load');
+    const text = await res.text();
+    if (typeof marked !== 'undefined') {
+      container.innerHTML = marked.parse(text);
+    } else {
+      container.innerHTML = `<pre style="white-space:pre-wrap; font-family:inherit;">${escapeHtml(text)}</pre>`;
+    }
+    container.setAttribute('data-loaded', 'true');
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--danger); text-align:center;">ガイドの読み込みに失敗しました。</p>';
+  }
+}
+
 function executePageTransition(pageId, isBackAction) {
-  clearInterval(quizTimer); clearTimeout(autoNextTimeout);
+  stopQuizTimer(); clearTimeout(autoNextTimeout);
   const activeScreen = document.querySelector('.screen.active');
   const currentId = activeScreen ? activeScreen.id : 'pgHome';
   
@@ -38,6 +56,7 @@ function executePageTransition(pageId, isBackAction) {
   if(pageId==='pgPublicCategories') { loadPublicCategories(); }
   if(pageId==='pgCompareStats') { loadFriendsForComparison(); }
   if(pageId==='pgBackup') { const el = document.getElementById('navBackup'); if(el) el.classList.add('active'); }
+  if(pageId==='pgTutorial') { fetchAndRenderTutorial(); }
   
   closeMenu();
 }
