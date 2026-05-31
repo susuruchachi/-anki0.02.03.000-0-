@@ -20,6 +20,7 @@ window.onload = function() {
 
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('share_id')) { openPage('pgShared'); listenToSharedDoc(urlParams.get('share_id')); }
+  if (urlParams.get('match_room')) { checkOnlineMatchInvite(urlParams.get('match_room')); }
   
   // 起動時に共有カテゴリーの変更を同期する
   if (typeof syncSubscriptions === 'function') syncSubscriptions();
