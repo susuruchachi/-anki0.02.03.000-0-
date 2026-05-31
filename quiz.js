@@ -19,10 +19,12 @@ function createScopeSelect(depth, categoriesToShow) {
   document.getElementById('scopeSelectors').appendChild(select);
 }
 
+// 正規化 (別解の / や | を考慮)
 function normalizeAnswer(str) {
   if(!str) return '';
   let s = String(str).replace(/[Ａ-Ｚａ-ｚ０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).toLowerCase().trim();
-  s = s.replace(/擦/g, 'こす');
+  s = s.replace(/擦/g, 'こす'); // 漢字揺れ対策
+  // 別解対応: 最初の一つだけを正解のベースにする
   s = s.replace(/[、，＼＼ \u3000]+/g, ',');
   return s.split(',').map(x=>x.trim()).filter(x=>x!=='').sort().join(',');
 }
@@ -34,6 +36,7 @@ function isAnswerCorrect(input, correctAnswer) {
 
 function startQuiz(modeType = 'normal') {
   currentCombo = 0; todayCorrectCount = 0;
+  // 前回のクイズ選択を復元
   if (lastQuizScopePath.length > 0) selectedScopePath = [...lastQuizScopePath];
   let scope = "all";
   if (selectedScopePath.length > 0 && selectedScopePath[0] !== "all") scope = "cat:" + selectedScopePath[selectedScopePath.length - 1];
@@ -43,6 +46,7 @@ function startQuiz(modeType = 'normal') {
   currentQuestionGradThreshold = parseInt(document.getElementById('numGradThreshold').value) || 5;
 
   let subset = [...db];
+  
   if (modeType === 'tokkun') subset = subset.filter(q => q.level <= 0 || q.level === -1);
   else if (modeType === 'review') subset = subset.filter(q => q.correct >= currentQuestionGradThreshold);
   else if (!includeGrad) subset = subset.filter(q => q.correct < currentQuestionGradThreshold);
@@ -55,6 +59,7 @@ function startQuiz(modeType = 'normal') {
 
   if(subset.length === 0) return alert("⚠️ 条件に合致する問題が見つかりませんでした。");
   
+  // ★ 優先順位付けロジック: 1.苦手 > 2.しっかり > 3.未着手 > 4.通常
   const prioritize = (q) => {
     if (q.level === 0 && (q.correct > 0 || q.incorrect > 0)) return 1;
     if (q.level === -1) return 2;
@@ -62,11 +67,16 @@ function startQuiz(modeType = 'normal') {
     return 4;
   };
 
+  // 一旦全体をランダムにシャッフル（同じ優先度の中で毎回出題をバラバラにするため）
   for (let i = subset.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [subset[i], subset[j]] = [subset[j], subset[i]]; }
+  
+  // その上で優先度順に並び替え
   subset.sort((a, b) => prioritize(a) - prioritize(b));
+
   quizPool = subset.slice(0, limitCount); quizIndex = 0;
 
   if (document.getElementById('chkSwapQA').checked) quizPool = quizPool.map(q => ({ ...q, question: q.answer, answer: q.question }));
+
   openPage('pgQuizPlayer'); loadQuizQuestion();
 }
 
@@ -123,6 +133,7 @@ function updateTimerUI() {
 
 function getPrimaryAnswer(ans) { return ans.split(/[/|]/)[0].trim(); }
 
+// 4択
 function buildFourChoices(cur) {
   const area = document.getElementById('boxChoiceArea'); area.innerHTML = '';
   const correctPrimary = getPrimaryAnswer(cur.answer);
@@ -151,12 +162,14 @@ function buildFourChoices(cur) {
   });
 }
 
+// みんはや
 let minhayaTarget = ""; let minhayaPos = 0;
 function buildMinhayaMode(cur) {
   minhayaTarget = getPrimaryAnswer(cur.answer); minhayaPos = 0; renderMinhayaDisplay(cur);
 }
 function renderMinhayaDisplay(cur) {
   const area = document.getElementById('boxMinhayaArea'); area.innerHTML = '';
+  
   let hintType = '';
   if(/^[ぁ-ん]+$/.test(minhayaTarget)) hintType = `【${minhayaTarget.length}文字】(ひらがなのみ)`;
   else if(/^[ァ-ヶ]+$/.test(minhayaTarget)) hintType = `【${minhayaTarget.length}文字】(カタカナのみ)`;
@@ -177,20 +190,16 @@ function renderMinhayaDisplay(cur) {
     slotsDiv.appendChild(slot);
   }
   area.appendChild(slotsDiv);
+
   if (minhayaPos >= minhayaTarget.length) return;
 
-  // ★ 改善箇所：正解に含まれる文字をダミー文字候補から完全に除外する
   const correctChar = minhayaTarget[minhayaPos];
   let distChars = [];
-  const targetChars = minhayaTarget.split('');
-  
-  db.forEach(q => getPrimaryAnswer(q.answer).split('').forEach(c => { 
-    if (!/[\s,、，。・/|]/.test(c) && !targetChars.includes(c)) distChars.push(c); 
-  }));
+  db.forEach(q => getPrimaryAnswer(q.answer).split('').forEach(c => { if (!/[\s,、，。・/|]/.test(c) && c !== correctChar) distChars.push(c); }));
   distChars = [...new Set(distChars)].sort(() => Math.random() - 0.5);
   
   let choices = [correctChar, ...distChars.slice(0, 3)];
-  const fallbacks = 'あいうえおかきくけこさしすせそ'.split('').filter(c => !targetChars.includes(c));
+  const fallbacks = 'あいうえおかきくけこさしすせそ'.split('').filter(c=>c!==correctChar);
   while(choices.length < 4) choices.push(fallbacks[Math.floor(Math.random()*fallbacks.length)]);
   choices.sort(() => Math.random() - 0.5);
 
@@ -212,6 +221,7 @@ function renderMinhayaDisplay(cur) {
   area.appendChild(choicesDiv);
 }
 
+// タップ
 let currentTapTarget = ""; let currentTapInput = [];
 function buildTapChoices(cur) {
   currentTapTarget = getPrimaryAnswer(cur.answer); currentTapInput = [];
@@ -253,6 +263,7 @@ function renderTapInput() {
   });
 }
 
+// 自己申告
 function buildSelfMode(cur) { document.getElementById('btnShowAnswer').style.display = 'inline-flex'; document.getElementById('selfJudgeArea').style.display = 'none'; }
 function showSelfAnswer() {
   clearInterval(quizTimer); document.getElementById('btnShowAnswer').style.display = 'none';
