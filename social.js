@@ -1,4 +1,4 @@
-// ★★★ すするanki0.02.43 - ソーシャル機能（ランキング・フレンド・チャット・成績比較・オンライン対戦） ★★★
+// ★★★ すするanki0.02.50-g - ソーシャル機能（ランキング・フレンド・チャット・成績比較・オンライン対戦） ★★★
 
 // ★ グローバル変数の安全な初期化
 window.shareStats = localStorage.getItem('shareStats') === 'true';
@@ -376,7 +376,6 @@ async function updateOnlineWaitingCount() {
       .where('status', '==', 'waiting')
       .where('scope', '==', scope)
       .get();
-    // JS側でisPrivate==falseを絞り込み（複合インデックス不要）
     const count = snap.docs.filter(d => d.data().isPrivate === false).length;
     el.textContent = count > 0 ? `🟢 このカテゴリーで ${count}人 が待機中` : '⚪ 現在このカテゴリーで待機中の人はいません';
     el.style.color = count > 0 ? 'var(--success)' : 'var(--text3)';
@@ -414,23 +413,26 @@ async function startOnlineMatch(scope, qCount, timeLimit, isPrivate, quizFormat 
       const snap = await firestore.collection('susuru_anki_matches')
         .where('status', '==', 'waiting')
         .where('scope', '==', scope)
-        .where('qCount', '==', qCount)
-        .where('isPrivate', '==', false)
-        .where('quizFormat', '==', quizFormat)
-        .limit(1).get();
+        .get();
         
-      if (!snap.empty) {
-        const doc = snap.docs[0];
-        if (doc.data().player1 !== currentUser.uid) {
-          currentMatchId = doc.id;
-          await firestore.collection('susuru_anki_matches').doc(currentMatchId).update({
-            status: 'playing',
-            player2: currentUser.uid,
-            player2Name: currentUser.displayName || '名無し'
-          });
-          listenToMatch();
-          return;
-        }
+      const availableMatches = snap.docs.filter(d => {
+        const data = d.data();
+        return data.qCount === qCount &&
+               data.isPrivate === false &&
+               data.quizFormat === quizFormat &&
+               data.player1 !== currentUser.uid;
+      });
+        
+      if (availableMatches.length > 0) {
+        const doc = availableMatches[0];
+        currentMatchId = doc.id;
+        await firestore.collection('susuru_anki_matches').doc(currentMatchId).update({
+          status: 'playing',
+          player2: currentUser.uid,
+          player2Name: currentUser.displayName || '名無し'
+        });
+        listenToMatch();
+        return;
       }
     }
     
@@ -503,7 +505,7 @@ window.copyInviteLink = function() {
   }
 }
 
-let matchOppProgressCallback = null; // 相手のProgress変化を受け取るコールバック
+let matchOppProgressCallback = null; 
 
 function listenToMatch() {
   if (matchUnsubscribe) matchUnsubscribe();
@@ -512,8 +514,33 @@ function listenToMatch() {
   
   matchUnsubscribe = firestore.collection('susuru_anki_matches').doc(currentMatchId)
     .onSnapshot((doc) => {
-      if (!doc.exists) return;
+      if (!doc.exists) {
+        // ★【0.02.50-g追加】相手の切断等でルームが削除された場合
+        if (currentMatchId) {
+          alert("❌ ルームが解散されました。");
+          if (typeof quitOnlineMatchUI === 'function') quitOnlineMatchUI();
+        }
+        return;
+      }
+      
       const data = doc.data();
+      
+      // ★【0.02.50-g追加】相手が退出または切断した時の終了処理
+      let myRole = data.player1 === currentUser.uid ? 'player1' : (data.player2 === currentUser.uid ? 'player2' : null);
+      window.myMatchRole = myRole; // main.jsでの退出通知用に保持
+      let enemyRole = myRole === 'player1' ? 'player2' : 'player1';
+      
+      if (data.status === 'playing' && data[`${enemyRole}Disconnected`] === true) {
+        if (matchUnsubscribe) { matchUnsubscribe(); matchUnsubscribe = null; }
+        if (typeof removeOnlineMatchOverlay === 'function') removeOnlineMatchOverlay();
+        alert("❌ 相手が退出しました。対戦を終了します。");
+        
+        firestore.collection('susuru_anki_matches').doc(currentMatchId).delete().catch(() => {});
+        currentMatchId = null;
+        localStorage.removeItem('susuru_anki_last_match');
+        if (typeof quitOnlineMatchUI === 'function') quitOnlineMatchUI();
+        return;
+      }
       
       if (data.status === 'playing') {
         const isPlayer1 = data.player1 === currentUser.uid;
@@ -526,13 +553,12 @@ function listenToMatch() {
           matchIsPlayer1 = isPlayer1;
           matchOppName = isPlayer1 ? (data.player2Name || '相手') : (data.player1Name || '相手');
           matchQuestions = data.questions || [];
-          matchCurrentIdx = 0;
-          matchScore = 0;
+          matchCurrentIdx = isPlayer1 ? (data.player1Progress || 0) : (data.player2Progress || 0);
+          matchScore = isPlayer1 ? (data.player1Score || 0) : (data.player2Score || 0);
           matchQuizFormat = data.quizFormat || 'choice';
           startOnlineGameUI(data);
         }
         
-        // 相手のProgress変化をコールバックへ通知
         if (matchOppProgressCallback) {
           matchOppProgressCallback(oppProgress, data);
         }
@@ -569,7 +595,6 @@ function startOnlineGameUI(matchData) {
   renderOnlineQuestion(matchTimeLimitVal);
 }
 
-// --- 答えフィードバック共通関数 ---
 function showOnlineFeedback(isCorrect, correctAnswer, timeLimit, onNext) {
   const gameView = document.getElementById('onlineGameView');
   if (!gameView) return;
@@ -585,35 +610,28 @@ function showOnlineFeedback(isCorrect, correctAnswer, timeLimit, onNext) {
   }, 900);
 }
 
-// 回答後：Progressを書き込み、相手を待って次の問題へ
 async function advanceToNextQuestion() {
   if (!currentMatchId) { renderOnlineQuestion(matchTimeLimitVal); return; }
-  const nextIdx = matchCurrentIdx; // すでにincrement済み
+  const nextIdx = matchCurrentIdx;
   
-  // 全問完了なら即finishOnlineGame
   if (nextIdx >= matchQuestions.length) {
     matchOppProgressCallback = null;
     finishOnlineGame();
     return;
   }
   
-  // Firestoreに自分のProgressを非同期で書き込む（await不要＝ブロックしない）
   const updateField = matchIsPlayer1 ? 'player1Progress' : 'player2Progress';
   firestore.collection('susuru_anki_matches').doc(currentMatchId)
     .update({ [updateField]: nextIdx })
     .catch(e => console.warn('Progress更新エラー:', e));
   
-  // 相手のProgressはonSnapshotで管理されているコールバックで検出する
-  // ここでは即座に待機画面を表示し、コールバックで解除する
   showOnlineWaitingForOpp(nextIdx, matchOppName);
 }
 
-// 相手待機画面を表示
 function showOnlineWaitingForOpp(waitingForIdx, oppName) {
   const gameView = document.getElementById('onlineGameView');
   if (!gameView) return;
   
-  const q = matchQuestions[waitingForIdx];
   const qNum = waitingForIdx + 1;
   
   gameView.innerHTML = `
@@ -631,8 +649,6 @@ function showOnlineWaitingForOpp(waitingForIdx, oppName) {
     </div>
   `;
   
-  // コールバックをセット：相手のProgressがwaitingForIdx以上になったら進む
-  // セット前に既に追いついていれば即進む
   if (matchLastOppProgress >= waitingForIdx) {
     matchOppProgressCallback = null;
     renderOnlineQuestion(matchTimeLimitVal);
@@ -656,7 +672,6 @@ function renderOnlineQuestion(timeLimit) {
   const q = matchQuestions[matchCurrentIdx];
   const fmt = matchQuizFormat || 'choice';
   
-  // 共通ヘッダHTML
   const headerHtml = `
     <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; color:var(--text2); margin-bottom:12px;">
       <span>⚔️ オンライン対戦中</span>
@@ -671,7 +686,6 @@ function renderOnlineQuestion(timeLimit) {
   `;
   
   if (fmt === 'choice') {
-    // 4択
     const correctPrimary = (typeof getPrimaryAnswer === 'function') ? getPrimaryAnswer(q.answer) : q.answer.split(/[/|]/)[0].trim();
     let dummys = [...new Set(db.filter(item => item.answer !== q.answer).map(item => (typeof getPrimaryAnswer === 'function') ? getPrimaryAnswer(item.answer) : item.answer.split(/[/|]/)[0].trim()))];
     dummys.sort(() => Math.random() - 0.5);
@@ -680,12 +694,15 @@ function renderOnlineQuestion(timeLimit) {
     choices.sort(() => Math.random() - 0.5);
     gameView.innerHTML = headerHtml + `
       <div style="display:grid; grid-template-columns:1fr; gap:10px; margin-bottom:20px;">
-        ${choices.map(c => `<button class="btn btn-secondary" style="justify-content:center; padding:12px; font-size:0.9rem; text-align:center; word-break:break-all;" onclick="submitOnlineAnswer(${JSON.stringify(c)}, ${JSON.stringify(correctPrimary)})">${escapeHtml(c)}</button>`).join('')}
+        ${choices.map((c, i) => `<button class="btn btn-secondary online-choice-btn" style="justify-content:center; padding:12px; font-size:0.9rem; text-align:center; word-break:break-all;" id="onlineChoiceBtn_${i}">${escapeHtml(c)}</button>`).join('')}
       </div>
     `;
+    choices.forEach((c, i) => {
+      const btn = document.getElementById('onlineChoiceBtn_' + i);
+      if (btn) btn.onclick = () => submitOnlineAnswer(c, correctPrimary);
+    });
 
   } else if (fmt === 'desc') {
-    // 記述式
     gameView.innerHTML = headerHtml + `
       <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px;">
         <input type="text" id="onlineDescInput" class="form-control" placeholder="答えを入力..." style="font-size:1rem;" autocomplete="off">
@@ -699,12 +716,10 @@ function renderOnlineQuestion(timeLimit) {
     }
     
   } else if (fmt === 'minhaya') {
-    // みんはや形式
     gameView.innerHTML = headerHtml + `<div id="onlineMinhayaArea"></div>`;
     renderOnlineMinhaya(q, timeLimit);
     
   } else if (fmt === 'tap') {
-    // タップ形式
     gameView.innerHTML = headerHtml + `
       <div style="margin-bottom:20px;">
         <div id="onlineTapInput" style="min-height:40px; background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; font-size:1.1rem; font-weight:bold; margin-bottom:10px; letter-spacing:2px;"></div>
@@ -715,7 +730,6 @@ function renderOnlineQuestion(timeLimit) {
     renderOnlineTap(q);
     
   } else if (fmt === 'self') {
-    // 自己申告形式
     gameView.innerHTML = headerHtml + `
       <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px; align-items:center;">
         <div id="onlineSelfAnswerDisplay" style="display:none; background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:12px; width:100%; text-align:center; font-size:1rem; font-weight:bold; color:var(--success);"></div>
@@ -731,7 +745,6 @@ function renderOnlineQuestion(timeLimit) {
     `;
   }
   
-  // 共通タイマー（自己申告は時間制限なし）
   clearInterval(matchTimer);
   if (fmt !== 'self') {
     matchTimeLeft = timeLimit;
@@ -749,7 +762,6 @@ function renderOnlineQuestion(timeLimit) {
   }
 }
 
-// --- 記述式送信 ---
 window.submitOnlineDescAnswer = function() {
   const inp = document.getElementById('onlineDescInput');
   if (!inp) return;
@@ -766,7 +778,6 @@ window.submitOnlineDescAnswer = function() {
   showOnlineFeedback(isOk, correct, timeLimit, () => advanceToNextQuestion());
 }
 
-// --- みんはや形式 ---
 let onlineMinhayaTarget = '';
 let onlineMinhayaPos = 0;
 
@@ -783,7 +794,6 @@ function renderOnlineMinhayaDisplay(q, timeLimit) {
   const target = onlineMinhayaTarget;
   const pos = onlineMinhayaPos;
   
-  // スロット表示
   let slotsHtml = '<div style="display:flex; flex-wrap:wrap; gap:4px; justify-content:center; margin-bottom:12px;">';
   for (let i = 0; i < target.length; i++) {
     const filled = i < pos;
@@ -795,13 +805,11 @@ function renderOnlineMinhayaDisplay(q, timeLimit) {
   slotsHtml += '</div>';
   
   if (pos >= target.length) {
-    // 完了
     area.innerHTML = slotsHtml + `<div style="text-align:center; color:var(--success); font-weight:bold;">✅ 正解！</div>`;
     return;
   }
   
   const correctChar = target[pos];
-  // 4択文字ボタン生成
   const allChars = [...new Set(
     db.map(item => ((typeof getPrimaryAnswer === 'function') ? getPrimaryAnswer(item.answer) : item.answer.split(/[/|]/)[0].trim())).join('').split('')
   )].filter(c => c && c !== correctChar && !/[\s　]/.test(c));
@@ -813,19 +821,23 @@ function renderOnlineMinhayaDisplay(q, timeLimit) {
   charChoices.sort(() => Math.random() - 0.5);
   
   let btnsHtml = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">';
-  charChoices.forEach(ch => {
-    btnsHtml += `<button class="btn btn-secondary" style="font-size:1.3rem; font-weight:bold; justify-content:center;" onclick="submitOnlineMinhayaChar(${JSON.stringify(ch)}, ${JSON.stringify(correctChar)}, ${timeLimit})">${escapeHtml(ch)}</button>`;
+  charChoices.forEach((ch, i) => {
+    btnsHtml += `<button class="btn btn-secondary online-minhaya-btn" style="font-size:1.3rem; font-weight:bold; justify-content:center;" id="onlineMinhayaBtn_${i}">${escapeHtml(ch)}</button>`;
   });
   btnsHtml += '</div>';
   
   area.innerHTML = slotsHtml + btnsHtml;
+
+  charChoices.forEach((ch, i) => {
+    const btn = document.getElementById('onlineMinhayaBtn_' + i);
+    if (btn) btn.onclick = () => submitOnlineMinhayaChar(ch, correctChar, timeLimit);
+  });
 }
 
 window.submitOnlineMinhayaChar = function(chosen, correct, timeLimit) {
   if (chosen === correct) {
     onlineMinhayaPos++;
     if (onlineMinhayaPos >= onlineMinhayaTarget.length) {
-      // 全文字正解
       clearInterval(matchTimer);
       matchScore++;
       matchCurrentIdx++;
@@ -835,14 +847,12 @@ window.submitOnlineMinhayaChar = function(chosen, correct, timeLimit) {
       renderOnlineMinhayaDisplay(q, timeLimit);
     }
   } else {
-    // 不正解: フィードバック表示して次の問題へ
     clearInterval(matchTimer);
     matchCurrentIdx++;
     showOnlineFeedback(false, onlineMinhayaTarget, timeLimit, () => advanceToNextQuestion());
   }
 }
 
-// --- タップ形式 ---
 let onlineTapTarget = [];
 let onlineTapInput = [];
 
@@ -854,7 +864,6 @@ function renderOnlineTap(q) {
   const choicesEl = document.getElementById('onlineTapChoices');
   if (!choicesEl) return;
   
-  // 候補文字: 正解文字 + ダミー
   const targetSet = [...new Set(onlineTapTarget)];
   const allChars = [...new Set(
     db.map(item => ((typeof getPrimaryAnswer === 'function') ? getPrimaryAnswer(item.answer) : item.answer.split(/[/|]/)[0].trim())).join('').split('')
@@ -904,7 +913,6 @@ window.submitOnlineTapAnswer = function() {
   showOnlineFeedback(isOk, primary, timeLimit, () => advanceToNextQuestion());
 }
 
-// --- 自己申告形式 ---
 window.showOnlineSelfAnswer = function() {
   const q = matchQuestions[matchCurrentIdx];
   const ansEl = document.getElementById('onlineSelfAnswerDisplay');
@@ -967,13 +975,11 @@ function updateGameWaitingStatus(data) {
   const oppName = isPlayer1 ? (data.player2Name || "相手") : (data.player1Name || "相手");
   const oppFinished = isPlayer1 ? data.player2Finished : data.player1Finished;
   
-  // 終了後の待機画面のstatusDiv
   const statusDiv = document.getElementById('matchWaitStatus');
   if (statusDiv) {
     statusDiv.innerText = oppFinished ? `💡 ${oppName} は解き終わっています。結果集計中...` : `🔄 ${oppName} の解答を待っています...`;
   }
   
-  // ゲーム中のヘッダインジケーター（相手が先に終わった場合に表示）
   if (oppFinished) {
     let ind = document.getElementById('onlineOppFinishedIndicator');
     if (!ind) {
@@ -1030,6 +1036,8 @@ window.quitOnlineMatchUI = function() {
   matchGameStarted = false;
   matchOppProgressCallback = null;
   matchLastOppProgress = 0;
+  // ★【0.02.50-g追加】正常終了時は復帰用データを削除
+  localStorage.removeItem('susuru_anki_last_match');
   initOnlineMatchPage();
 }
 
@@ -1063,6 +1071,8 @@ window.cancelOnlineMatch = async function() {
       if (doc.exists && doc.data().status === 'waiting') await docRef.delete();
     } catch (e) { console.error(e); }
     currentMatchId = null;
+    // ★【0.02.50-g追加】キャンセル時も復帰用データを削除
+    localStorage.removeItem('susuru_anki_last_match');
   }
 }
 
