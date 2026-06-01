@@ -111,27 +111,43 @@ async function syncToCloud(isSilent = false) {
       if (r.deletedCards) { r.deletedCards.forEach(id => { if (!deletedCards.includes(id)) deletedCards.push(id); }); }
       if (r.deletedCats) { r.deletedCats.forEach(c => { if (!deletedCats.includes(c)) deletedCats.push(c); }); }
       
+      // ★ 修正箇所: クラウドのデータを「正」としてローカルを完全上書き一掃する
       if (Array.isArray(r.db)) {
-        let lMap = new Map(db.map(q => [q.id, q]));
+        let nextDb = [];
         r.db.forEach(rq => {
           if (!rq.question || !rq.answer) return;
-          if (lMap.has(rq.id)) {
-            let lq = lMap.get(rq.id);
-            if (rq.level > lq.level || rq.correct > lq.correct || rq.streak > lq.streak) lMap.set(rq.id, rq);
-          } else if (!deletedCards.includes(rq.id)) {
-            lMap.set(rq.id, rq);
+          if (!deletedCards.includes(rq.id)) {
+            // 成績だけはローカルが進んでいれば引き継ぐ
+            let lq = db.find(q => q.id === rq.id);
+            if (lq && (lq.level > rq.level || lq.correct > rq.correct || lq.streak > rq.streak)) {
+              nextDb.push(lq);
+            } else {
+              nextDb.push(rq);
+            }
           }
         });
-        db = Array.from(lMap.values());
+        // クラウド保存に間に合っていない、ローカルで作りたての新規カードだけ救済
+        db.forEach(lq => {
+          if (!nextDb.find(q => q.id === lq.id) && !deletedCards.includes(lq.id)) {
+             nextDb.push(lq);
+          }
+        });
+        db = nextDb;
       }
+      
+      let nextCategories = ["未分類"];
       let rCat = r.categories || [];
-      rCat.forEach(rc => { if (rc && !categories.includes(rc) && !deletedCats.includes(rc)) categories.push(rc); });
+      rCat.forEach(rc => { if (rc && !nextCategories.includes(rc) && !deletedCats.includes(rc)) nextCategories.push(rc); });
+      categories = nextCategories;
+
+      let nextCategoryTree = {};
       let rTree = r.categoryTree || {};
       for (let p in rTree) {
         if (!categories.includes(p) && !deletedCats.includes(p)) categories.push(p);
-        if (!categoryTree[p]) categoryTree[p] = [];
-        rTree[p].forEach(c => { if (!categoryTree[p].includes(c) && !deletedCats.includes(c)) categoryTree[p].push(c); });
+        if (!nextCategoryTree[p]) nextCategoryTree[p] = [];
+        rTree[p].forEach(c => { if (!nextCategoryTree[p].includes(c) && !deletedCats.includes(c)) nextCategoryTree[p].push(c); });
       }
+      categoryTree = nextCategoryTree;
     }
     ensureSystemSanity();
     autoMerge();
