@@ -66,10 +66,14 @@ function handleCategoryLongpress(catName) {
   if (catName === "未分類") return alert("基本フォルダーは変更できません。");
   
   let isSharedReadOnly = false;
+  let isSubscribedOther = false; // 他人が作った購読カテゴリー
   const sharedCard = db.find(q => q.category === catName && q.sharedDocId);
   if (sharedCard) {
     const perm = sharedDocPermissions[sharedCard.sharedDocId];
     if (!perm || !perm.canEdit) isSharedReadOnly = true;
+    if (perm && !perm.isOwner) isSubscribedOther = true; // オーナーでない＝購読者
+    // 権限情報がない場合もsubscribedDocsに入っていれば購読者扱い
+    if (!perm && subscribedDocs.includes(sharedCard.sharedDocId)) isSubscribedOther = true;
   }
 
   const subCats = getAllSubcategories(catName);
@@ -126,15 +130,19 @@ function handleCategoryLongpress(catName) {
         alert(`✅ ${resetCount}件の成績をリセットしました！`);
         if (document.getElementById('pgStats') && document.getElementById('pgStats').classList.contains('active')) renderStatsAndCharts();
       } },
-    { html: '❌ 削除 (中身も全て削除)', danger: true, action: () => {
-        if (isSharedReadOnly) return alert("🔒 閲覧専用の共有カテゴリーはローカルから直接削除できません。（※不要になった場合はアプリをリセットするか個別に消去してください）");
-        if(!confirm(`警告: 「${catName}」と中身を全て削除しますか？`)) return;
-        const toDelete = getAllSubcategories(catName);
-        deletedCats.push(...toDelete);
-        db.forEach(q => { if(toDelete.includes(q.category)) deletedCards.push(q.id); });
-        db = db.filter(q => !toDelete.includes(q.category)); categories = categories.filter(c => !toDelete.includes(c));
-        for(let p in categoryTree) { if(toDelete.includes(p)) delete categoryTree[p]; else if(categoryTree[p]) categoryTree[p] = categoryTree[p].filter(c => !toDelete.includes(c)); }
-        saveData(true); renderTree();
-      } }
+    ...(isSubscribedOther ? [
+      { html: '🚫 購読を解除', danger: true, action: () => { unsubscribeSharedCategory(catName); } }
+    ] : [
+      { html: '❌ 削除 (中身も全て削除)', danger: true, action: () => {
+          if (isSharedReadOnly) return alert("🔒 閲覧専用の共有カテゴリーはローカルから直接削除できません。（※不要になった場合はアプリをリセットするか個別に消去してください）");
+          if(!confirm(`警告: 「${catName}」と中身を全て削除しますか？`)) return;
+          const toDelete = getAllSubcategories(catName);
+          deletedCats.push(...toDelete);
+          db.forEach(q => { if(toDelete.includes(q.category)) deletedCards.push(q.id); });
+          db = db.filter(q => !toDelete.includes(q.category)); categories = categories.filter(c => !toDelete.includes(c));
+          for(let p in categoryTree) { if(toDelete.includes(p)) delete categoryTree[p]; else if(categoryTree[p]) categoryTree[p] = categoryTree[p].filter(c => !toDelete.includes(c)); }
+          saveData(true); renderTree();
+        } }
+    ])
   ]);
 }

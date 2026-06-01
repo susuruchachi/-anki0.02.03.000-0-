@@ -16,8 +16,9 @@ async function syncSubscriptions() {
       const snap = await firestore.collection("susuru_anki_shared").doc(docId).get();
       if (!snap.exists) continue;
       const data = snap.data();
-      const canEdit = (data.ownerId === currentUser.uid) || (data.friends && data.friends.includes(currentUser.uid));
-      sharedDocPermissions[docId] = { canEdit };
+      const isOwner = (data.ownerId === currentUser.uid);
+      const canEdit = isOwner || (data.friends && data.friends.includes(currentUser.uid));
+      sharedDocPermissions[docId] = { canEdit, isOwner };
       
       const cloudCards = data.cards || [];
       const cloudCardIds = cloudCards.map(c => c.id);
@@ -272,6 +273,41 @@ async function deletePublicCategory(docId, catName) {
     subscribedDocs = subscribedDocs.filter(id => id !== docId); saveData();
     alert("✅ 公開を停止しました（手元のデータは安全です）"); loadPublicCategories();
   } catch(e) { alert("⚠️ 削除に失敗しました"); }
+}
+
+async function unsubscribeSharedCategory(catName) {
+  const sharedCard = db.find(q => q.category === catName && q.sharedDocId);
+  if (!sharedCard) return alert("⚠️ 購読情報が見つかりません");
+  const docId = sharedCard.sharedDocId;
+
+  if (!confirm("「" + catName + "」の購読を解除しますか？\n\n※このフォルダーと中の問題がすべて削除されます。\n（学習成績も消えます）")) return;
+
+  const targetCats = [...new Set(db.filter(q => q.sharedDocId === docId).map(q => q.category))];
+  let allTarget = [];
+  targetCats.forEach(c => { allTarget.push(...getAllSubcategories(c)); });
+  allTarget = [...new Set(allTarget)];
+
+  db = db.filter(q => !allTarget.includes(q.category));
+  categories = categories.filter(c => !allTarget.includes(c));
+  for (let p in categoryTree) {
+    if (allTarget.includes(p)) delete categoryTree[p];
+    else if (categoryTree[p]) categoryTree[p] = categoryTree[p].filter(c => !allTarget.includes(c));
+  }
+
+  subscribedDocs = subscribedDocs.filter(id => id !== docId);
+  delete sharedDocPermissions[docId];
+
+  if (currentUser) {
+    try {
+      await firestore.collection('susuru_anki_shared').doc(docId).update({
+        subscriberUids: firebase.firestore.FieldValue.arrayRemove(currentUser.uid)
+      });
+    } catch(e) { /* 無視 */ }
+  }
+
+  saveData(true);
+  renderTree();
+  alert("✅ 「" + catName + "」の購読を解除しました");
 }
 
 let publicCategoriesCache = []; let unsubscribePublicCategories = null;
