@@ -345,17 +345,60 @@ function renderPublicCategories() {
   filtered.forEach(cat => {
     const card = document.createElement('div'); card.className = 'card'; card.style.cursor = 'pointer'; card.style.position = 'relative';
     const isOwner = currentUser && cat.ownerId === currentUser.uid;
-    
-    // ★ 今回の修正：全員が見れる「🌐 詳細・管理」ボタンを追加しました！
+    const isSubscribed = subscribedDocs.includes(cat.id) && !isOwner;
+    const subscribeBtn = isOwner
+      ? ''
+      : isSubscribed
+        ? `<button class="btn" style="margin-top:8px; width:100%; background:var(--danger); color:#fff; border-color:var(--danger);" onclick="unsubscribePublicCategory('${cat.id}', '${escapeHtml(cat.catName)}')">🚫 購読を解除</button>`
+        : `<button class="btn btn-success" style="margin-top:8px; width:100%;" onclick="importPublicCategory('${cat.id}', '${escapeHtml(cat.catName)}')">📥 購読してインポート</button>`;
     card.innerHTML = `
       <div class="q-card-text">${escapeHtml(cat.catName)}</div>
       <div style="font-size:0.85rem; color:var(--text2); margin-top:4px;">作成者: <span style="color:var(--text);">${escapeHtml(cat.ownerName || 'Unknown')}</span></div>
       <div style="font-size:0.8rem; color:var(--text3); margin-top:6px;">カード数: <span style="color:var(--primary); font-weight:bold;">${(cat.cards || []).length}問</span>　👥 利用者: <span style="color:var(--accent); font-weight:bold;">${(cat.subscriberUids || []).length}人</span></div>
       <button class="btn btn-secondary" style="margin-top:10px; width:100%;" onclick="openPage('pgShared'); listenToSharedDoc('${cat.id}')">🌐 詳細・共同編集者の管理</button>
-      <button class="btn btn-success" style="margin-top:8px; width:100%;" onclick="importPublicCategory('${cat.id}', '${escapeHtml(cat.catName)}')">📥 購読してインポート</button>
+      ${subscribeBtn}
       ${isOwner ? `<button class="btn btn-danger" style="margin-top:8px; width:100%;" onclick="deletePublicCategory('${cat.id}', '${escapeHtml(cat.catName)}')">🗑️ 削除</button>` : ''}`;
     listDiv.appendChild(card);
   });
+}
+
+async function unsubscribePublicCategory(docId, catName) {
+  if (!confirm(`「${catName}」の購読を解除しますか？\n\n※このカテゴリーの問題がすべてローカルから削除されます。`)) return;
+
+  // 対象docIdに紐づく全カテゴリーを収集してローカルから削除
+  const targetCats = [...new Set(db.filter(q => q.sharedDocId === docId).map(q => q.category))];
+  let allTarget = [];
+  targetCats.forEach(c => { allTarget.push(...getAllSubcategories(c)); });
+  allTarget = [...new Set(allTarget)];
+
+  db = db.filter(q => !allTarget.includes(q.category));
+  categories = categories.filter(c => !allTarget.includes(c));
+  for (let p in categoryTree) {
+    if (allTarget.includes(p)) delete categoryTree[p];
+    else if (categoryTree[p]) categoryTree[p] = categoryTree[p].filter(c => !allTarget.includes(c));
+  }
+
+  subscribedDocs = subscribedDocs.filter(id => id !== docId);
+  delete sharedDocPermissions[docId];
+
+  // FirestoreのsubscriberUidsから自分を除去
+  if (currentUser) {
+    try {
+      await firestore.collection('susuru_anki_shared').doc(docId).update({
+        subscriberUids: firebase.firestore.FieldValue.arrayRemove(currentUser.uid)
+      });
+      // ローカルキャッシュも更新して利用者数を即時反映
+      const cached = publicCategoriesCache.find(c => c.id === docId);
+      if (cached && cached.subscriberUids) {
+        cached.subscriberUids = cached.subscriberUids.filter(uid => uid !== currentUser.uid);
+      }
+    } catch(e) { /* 無視 */ }
+  }
+
+  saveData(true);
+  renderTree();
+  renderPublicCategories(); // ボタンを即時更新
+  alert(`✅ 「${catName}」の購読を解除しました`);
 }
 
 function filterPublicCategories() { renderPublicCategories(); }

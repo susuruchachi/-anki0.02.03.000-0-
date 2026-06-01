@@ -1,3 +1,3 @@
 // ★ バージョン情報（このファイルだけで管理）
-const APP_VERSION = "0.02.55-g";
+const APP_VERSION = "0.02.56-g";
 const APP_NAME = "すするanki";
