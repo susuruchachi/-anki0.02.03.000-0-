@@ -6,7 +6,7 @@ function filterBoxByStatus(statusType) { currentViewContext = statusType; openPa
 function renderBox() {
   const container = document.getElementById('boxList'); container.innerHTML = '';
   let filtered = [...db]; let titleString = "📝 全ての問題一覧";
-  const th = parseInt(document.getElementById('numGradThreshold').value) || 5;
+  // 卒業判定：レベル5 かつ level5Correct が5以上
 
   let navContainer = null;
   const specialViews = ['all', 'grad', 'master', 'normal', 'weak', 'shikkari', 'unseen'];
@@ -62,11 +62,11 @@ function renderBox() {
     
   } else if (typeof currentViewContext === 'string' && currentViewContext !== 'all') {
     titleString = `📊 実績抽出カードの一覧`;
-    if (currentViewContext === 'grad') filtered = db.filter(q => q.correct >= th);
-    if (currentViewContext === 'master') filtered = db.filter(q => q.correct < th && q.level >= 3);
-    if (currentViewContext === 'normal') filtered = db.filter(q => q.correct < th && q.level >= 1 && q.level <= 2);
-    if (currentViewContext === 'weak') filtered = db.filter(q => q.correct < th && q.level === 0 && (q.correct+q.incorrect)>0);
-    if (currentViewContext === 'shikkari') filtered = db.filter(q => q.correct < th && q.level === -1);
+    if (currentViewContext === 'grad') filtered = db.filter(q => q.level >= 5 && (q.level5Correct || 0) >= 5);
+    if (currentViewContext === 'master') filtered = db.filter(q => !(q.level >= 5 && (q.level5Correct || 0) >= 5) && q.level >= 3);
+    if (currentViewContext === 'normal') filtered = db.filter(q => !(q.level >= 5 && (q.level5Correct || 0) >= 5) && q.level >= 1 && q.level <= 2);
+    if (currentViewContext === 'weak') filtered = db.filter(q => !(q.level >= 5 && (q.level5Correct || 0) >= 5) && q.level === 0 && (q.correct+q.incorrect)>0);
+    if (currentViewContext === 'shikkari') filtered = db.filter(q => !(q.level >= 5 && (q.level5Correct || 0) >= 5) && q.level === -1);
     if (currentViewContext === 'unseen') filtered = db.filter(q => q.correct === 0 && q.incorrect === 0 && q.level >= 0);
   }
 
@@ -90,7 +90,7 @@ function renderBox() {
   }
 
   filtered.forEach(item => {
-    const isGrad = item.correct >= th;
+    const isGrad = item.level >= 5 && (item.level5Correct || 0) >= 5;
     const card = document.createElement('div'); card.className = 'q-card';
     setupLongpress(card, () => handleQuestionLongpress(item));
     _boxAnswerCache[item.id] = item.answer;

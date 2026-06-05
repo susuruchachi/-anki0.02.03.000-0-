@@ -62,6 +62,11 @@ function executePageTransition(pageId, isBackAction) {
     pageHistory.push(currentId);
     history.pushState({ page: pageId }, '', '');
   }
+  // ★【0.02.58-g】最終ページを保存（再読み込み後に復元するため）。クイズ中・対戦中は保存しない
+  const dontSave = ['pgQuizPlayer', 'pgOnlineMatch', 'pgShared'];
+  if (!dontSave.includes(pageId)) {
+    try { localStorage.setItem('susuru_anki_last_page', pageId); } catch(e) {}
+  }
   if (pageId !== 'pgFriends') closeChat();
 
   document.querySelectorAll('.screen').forEach(s => { s.classList.remove('active'); s.style.display='none'; });
@@ -75,7 +80,7 @@ function executePageTransition(pageId, isBackAction) {
   if(pageId==='pgBox') { const el = document.getElementById('navBox'); if(el) el.classList.add('active'); renderBox(); }
   if(pageId==='pgStats') { const el = document.getElementById('navStats'); if(el) el.classList.add('active'); renderStatsAndCharts(); }
   if(pageId==='pgOnlineMatch') { const el = document.getElementById('navOnlineMatch'); if(el) el.classList.add('active'); initOnlineMatchPage(); }
-  if(pageId==='pgPublicCategories') { loadPublicCategories(); }
+  if(pageId==='pgPublicCategories') { loadPublicCategories(); loadMyPublicCategories(); }
   if(pageId==='pgCompareStats') { loadFriendsForComparison(); }
   if(pageId==='pgBackup') { const el = document.getElementById('navBackup'); if(el) el.classList.add('active'); }
   if(pageId==='pgTutorial') { fetchAndRenderTutorial(); }

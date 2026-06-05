@@ -20,6 +20,13 @@ window.onload = function() {
 
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('share_id')) { openPage('pgShared'); listenToSharedDoc(urlParams.get('share_id')); }
+  else {
+    // 再読み込み時に前のページに復帰
+    try {
+      const lastPage = localStorage.getItem('susuru_anki_last_page');
+      if (lastPage && lastPage !== 'pgHome') openPage(lastPage);
+    } catch(e) {}
+  }
   
   // 起動時に共有カテゴリーの変更を同期する
   if (typeof syncSubscriptions === 'function') syncSubscriptions();

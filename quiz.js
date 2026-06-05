@@ -1,7 +1,31 @@
 // ----------------- クイズ機能 -----------------
+const SCOPE_STORAGE_KEY = 'susuru_anki_scope_path';
+function saveScopePath() {
+  try { localStorage.setItem(SCOPE_STORAGE_KEY, JSON.stringify(selectedScopePath)); } catch(e) {}
+}
+function loadScopePath() {
+  try { const s = localStorage.getItem(SCOPE_STORAGE_KEY); if(s) selectedScopePath = JSON.parse(s); } catch(e) {}
+}
+
 function buildQuizScopeDropdown() {
   const container = document.getElementById('scopeSelectors'); if(!container) return;
+  loadScopePath();
   container.innerHTML = ''; createScopeSelect(0, getTopLevelCategories());
+  // 保存されたパスを選択状態に復元
+  if (selectedScopePath.length > 0) {
+    const selects = container.querySelectorAll('select');
+    if (selectedScopePath[0] === 'all' && selects[0]) { selects[0].value = 'all'; }
+    else {
+      selectedScopePath.forEach((val, depth) => {
+        const sel = container.querySelectorAll('select')[depth];
+        if (sel) {
+          sel.value = val;
+          const children = categoryTree[val] || [];
+          if (children.length > 0 && depth === selectedScopePath.length - 1) createScopeSelect(depth + 1, children);
+        }
+      });
+    }
+  }
 }
 function createScopeSelect(depth, categoriesToShow) {
   if (categoriesToShow.length === 0) return;
@@ -12,8 +36,8 @@ function createScopeSelect(depth, categoriesToShow) {
   select.onchange = (e) => {
     const val = e.target.value; const container = document.getElementById('scopeSelectors');
     const selects = Array.from(container.querySelectorAll('select')); selects.forEach((sel, idx) => { if (idx > depth) sel.remove(); });
-    if (val === "all") { selectedScopePath = ["all"]; return; }
-    selectedScopePath[depth] = val; selectedScopePath = selectedScopePath.slice(0, depth + 1);
+    if (val === "all") { selectedScopePath = ["all"]; saveScopePath(); return; }
+    selectedScopePath[depth] = val; selectedScopePath = selectedScopePath.slice(0, depth + 1); saveScopePath();
     const children = categoryTree[val] || []; if (children.length > 0) createScopeSelect(depth + 1, children);
   };
   document.getElementById('scopeSelectors').appendChild(select);
@@ -34,18 +58,17 @@ function isAnswerCorrect(input, correctAnswer) {
 
 async function startQuiz(modeType = 'normal') {
   currentCombo = 0; todayCorrectCount = 0;
-  if (lastQuizScopePath.length > 0) selectedScopePath = [...lastQuizScopePath];
+  if (selectedScopePath.length === 0 && lastQuizScopePath.length > 0) selectedScopePath = [...lastQuizScopePath];
   let scope = "all";
   if (selectedScopePath.length > 0 && selectedScopePath[0] !== "all") scope = "cat:" + selectedScopePath[selectedScopePath.length - 1];
   
   const includeGrad = document.getElementById('chkIncludeGrad').checked;
   const limitCount = parseInt(document.getElementById('numQCount').value) || 10;
-  currentQuestionGradThreshold = parseInt(document.getElementById('numGradThreshold').value) || 5;
 
   let subset = [...db];
   if (modeType === 'tokkun') subset = subset.filter(q => q.level <= 0 || q.level === -1);
-  else if (modeType === 'review') subset = subset.filter(q => q.correct >= currentQuestionGradThreshold);
-  else if (!includeGrad) subset = subset.filter(q => q.correct < currentQuestionGradThreshold);
+  else if (modeType === 'review') subset = subset.filter(q => q.level >= 5 && (q.level5Correct || 0) >= 5);
+  else if (!includeGrad) subset = subset.filter(q => !(q.level >= 5 && (q.level5Correct || 0) >= 5));
 
   if(scope.startsWith('cat:')) {
     const cName = scope.replace('cat:', '');
@@ -383,6 +406,9 @@ function evaluateRoundAnswer(isCorrect, head) {
     const multiplier = (mode === 'choice' || mode === 'tap' || mode === 'minhaya') ? 2 : 1; 
     const th = currentQuestionGradThreshold;
 
+    if(m.level5Correct === undefined) m.level5Correct = 0;
+    const isGraduated = m.level >= 5 && m.level5Correct >= 5;
+
     if(isCorrect) {
       m.correct++; recordCategoryScore(m.category, true);
       if (mode === 'self' && window.currentSelfJudge === 'good') m.wrongStreak = 0;
@@ -391,16 +417,28 @@ function evaluateRoundAnswer(isCorrect, head) {
       if (m.level === -1) {
         m.shikkariStreak++;
         if (m.shikkariStreak >= 5 * multiplier) { m.level = 0; m.shikkariStreak = 0; m.streak = 0; }
-      } else if (m.correct - 1 >= th) {
+      } else if (isGraduated) {
+        // 卒業済み：何もしない
+      } else if (m.level >= 5) {
+        // レベル5で未卒業：正解を積む
+        m.level5Correct++;
       } else {
-        if (m.streak >= 2 * multiplier && m.level < 5) { m.level++; m.streak = 0; }
+        if (m.streak >= 2 * multiplier && m.level < 5) {
+          m.level++;
+          if (m.level === 5) m.level5Correct = 0;
+          m.streak = 0;
+        }
       }
     } else {
       m.incorrect++; m.wrongStreak++; m.streak = 0; m.shikkariStreak = 0;
       recordCategoryScore(m.category, false);
 
-      if (m.correct >= th) {
-        if (m.wrongStreak >= 3 * multiplier) { m.correct = th - 1; m.level = 2; m.wrongStreak = 0; }
+      if (isGraduated) {
+        // 卒業済みで不正解：5回で卒業取り消し（レベル5に留まる）
+        if (m.wrongStreak >= 5 * multiplier) { m.level5Correct = 0; m.wrongStreak = 0; }
+      } else if (m.level >= 5) {
+        // レベル5・未卒業で不正解：2回でレベル4に下がる
+        if (m.wrongStreak >= 2 * multiplier) { m.level = 4; m.level5Correct = 0; m.wrongStreak = 0; }
       } else {
         if (m.level !== -1) {
           if (m.wrongStreak >= 4 * multiplier) { m.level = -1; m.wrongStreak = 0; m.correct = 0; } 

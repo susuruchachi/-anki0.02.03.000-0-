@@ -17,12 +17,19 @@ function loadData() {
     } 
   } catch(e){}
   try { shareStats = localStorage.getItem('shareStats') === 'true'; } catch(e){}
+  // ★【0.02.58-g】カテゴリー選択と最終ページを復元
+  try {
+    const savedScope = localStorage.getItem(STORAGE_KEY + '_scopePath');
+    if (savedScope) lastQuizScopePath = JSON.parse(savedScope);
+  } catch(e){}
 }
 
 function saveData(immediate = false) {
   ensureSystemSanity();
   const payload = { db, categories, categoryTree, subscribedDocs, ownedDocs, deletedCards, deletedCats };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  // ★【0.02.58-g】カテゴリー選択を保存
+  try { localStorage.setItem(STORAGE_KEY + '_scopePath', JSON.stringify(lastQuizScopePath)); } catch(e){}
   if (currentUser) {
     clearTimeout(syncTimeout);
     setSyncStatus('saving', '🔄 保存中...');
@@ -76,6 +83,7 @@ function ensureSystemSanity() {
     if(item.streak === undefined) item.streak = 0;
     if(item.wrongStreak === undefined) item.wrongStreak = 0;
     if(item.shikkariStreak === undefined) item.shikkariStreak = 0;
+    if(item.level5Correct === undefined) item.level5Correct = 0;
   });
 }
 

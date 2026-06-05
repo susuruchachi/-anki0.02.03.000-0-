@@ -266,14 +266,19 @@ async function makePublicCategory(catName) {
 
 async function deletePublicCategory(docId, catName) {
   if (!currentUser) return alert("ログインしてください");
-  if (!confirm(`公開カテゴリーの一覧から「${escapeHtml(catName)}」を削除（公開停止）しますか？\n\n※手元にある元のフォルダーや問題データは消えずにそのまま残ります。`)) return;
+  if (!confirm(`「${escapeHtml(catName)}」の公開を停止してFirebaseからデータを完全削除しますか？\n\n※手元のフォルダーや問題データは消えずにそのまま残ります。\n※購読者のデバイスからは次の同期時に削除されます。`)) return;
   try {
     const docSnap = await firestore.collection("susuru_anki_shared").doc(docId).get();
     if (!docSnap.exists) return alert("カテゴリーが見つかりません");
     const data = docSnap.data(); if (data.ownerId !== currentUser.uid) return alert("削除権限がありません");
     await firestore.collection("susuru_anki_shared").doc(docId).delete();
-    subscribedDocs = subscribedDocs.filter(id => id !== docId); saveData();
-    alert("✅ 公開を停止しました（手元のデータは安全です）"); loadPublicCategories();
+    subscribedDocs = subscribedDocs.filter(id => id !== docId);
+    ownedDocs = ownedDocs.filter(id => id !== docId);
+    delete sharedDocPermissions[docId];
+    saveData();
+    alert("✅ 公開を停止しFirebaseから削除しました（手元のデータは安全です）");
+    loadPublicCategories();
+    loadMyPublicCategories();
   } catch(e) { alert("⚠️ 削除に失敗しました"); }
 }
 
@@ -401,6 +406,55 @@ async function unsubscribePublicCategory(docId, catName) {
   alert(`✅ 「${catName}」の購読を解除しました`);
 }
 
+async function loadMyPublicCategories() {
+  if (!currentUser) { document.getElementById('myPublicCategoriesSection').style.display = 'none'; return; }
+  const section = document.getElementById('myPublicCategoriesSection');
+  const listDiv = document.getElementById('myPublicCategoriesList');
+  section.style.display = 'block';
+  listDiv.innerHTML = '<div style="text-align:center; color:var(--text3); font-size:0.85rem;">読み込み中...</div>';
+  try {
+    const snap = await firestore.collection('susuru_anki_shared').where('ownerId', '==', currentUser.uid).get();
+    if (snap.empty) {
+      listDiv.innerHTML = '<div style="text-align:center; color:var(--text3); font-size:0.85rem; padding:10px;">公開中のカテゴリーはありません</div>';
+      return;
+    }
+    listDiv.innerHTML = '';
+    snap.forEach(doc => {
+      const cat = doc.data();
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border);';
+      const isActive = cat.isPublic === true;
+      row.innerHTML = `
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; font-size:0.9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(cat.catName || '不明')}</div>
+          <div style="font-size:0.75rem; color:var(--text3); margin-top:2px;">
+            ${isActive ? '<span style="color:var(--success);">🌐 公開中</span>' : '<span style="color:var(--text3);">🔒 非公開（残存）</span>'}
+            　カード: ${(cat.cards || []).length}問　👥 ${(cat.subscriberUids || []).length}人
+          </div>
+        </div>
+        <button class="btn btn-danger" style="width:auto; padding:6px 12px; font-size:0.8rem; margin-left:10px; flex-shrink:0;" onclick="deleteMyPublicCategory('${doc.id}', '${escapeHtml(cat.catName || '不明')}')">🗑️ 削除</button>`;
+      listDiv.appendChild(row);
+    });
+  } catch(e) {
+    listDiv.innerHTML = '<div style="color:var(--danger); font-size:0.85rem; text-align:center;">読み込みに失敗しました</div>';
+  }
+}
+
+async function deleteMyPublicCategory(docId, catName) {
+  if (!currentUser) return alert('ログインしてください');
+  if (!confirm(`「${catName}」をFirebaseから完全に削除しますか？\n\n※手元のフォルダーや問題データは消えずに残ります。`)) return;
+  try {
+    await firestore.collection('susuru_anki_shared').doc(docId).delete();
+    subscribedDocs = subscribedDocs.filter(id => id !== docId);
+    ownedDocs = ownedDocs.filter(id => id !== docId);
+    delete sharedDocPermissions[docId];
+    saveData();
+    await loadMyPublicCategories();
+    loadPublicCategories();
+    alert(`✅ 「${catName}」をFirebaseから削除しました`);
+  } catch(e) { alert('⚠️ 削除に失敗しました'); }
+}
+
 function filterPublicCategories() { renderPublicCategories(); }
 
 async function importPublicCategory(docId, catName) {
@@ -434,4 +488,84 @@ async function importPublicCategory(docId, catName) {
       } catch(e2) { /* 失敗しても購読自体は成功しているので無視 */ }
     }
   } catch(e) { alert('⚠️ 購読に失敗しました'); }
+}
+// ★【0.02.59-g】構造エクスプローラーからのカテゴリー追加・削除をsharedDocに同期
+// 指定カテゴリーを含むsharedDocId（オーナー or 共同編集者）を探す
+function findEditableSharedDocForCat(catName) {
+  if (!currentUser) return null;
+  const card = db.find(q => q.category === catName && q.sharedDocId);
+  if (!card) return null;
+  const docId = card.sharedDocId;
+  const perm = sharedDocPermissions[docId];
+  if (!perm || !perm.canEdit) return null;
+  return docId;
+}
+
+// sharedDocのcategories/categoryTreeを更新する（カードは変えない）
+async function syncSharedDocStructure(docId) {
+  if (!docId || !currentUser) return;
+  try {
+    const snap = await firestore.collection('susuru_anki_shared').doc(docId).get();
+    if (!snap.exists) return;
+    const data = snap.data();
+    // このdocIdに関係するカテゴリーをローカルから収集
+    const rootCat = data.catName;
+    const allRelated = getAllSubcategories(rootCat);
+    // ローカルのcategoryTreeからallRelatedのみ抽出
+    const partialTree = {};
+    allRelated.forEach(c => { if (categoryTree[c]) partialTree[c] = categoryTree[c].filter(child => allRelated.includes(child)); });
+    const existingCats = allRelated.filter(c => categories.includes(c));
+    await firestore.collection('susuru_anki_shared').doc(docId).update({
+      categories: existingCats,
+      categoryTree: partialTree
+    });
+  } catch(e) { console.warn('SharedDoc構造同期失敗:', e); }
+}
+
+// カテゴリー新規追加後にsharedDocへ同期（親カテゴリーがshared対象の場合）
+async function syncNewCategoryToShared(parentCatName, newCatName) {
+  if (!parentCatName) return;
+  const docId = findEditableSharedDocForCat(parentCatName);
+  if (!docId) return;
+  try {
+    await firestore.collection('susuru_anki_shared').doc(docId).update({
+      categories: firebase.firestore.FieldValue.arrayUnion(newCatName),
+      [`categoryTree.${parentCatName}`]: firebase.firestore.FieldValue.arrayUnion(newCatName)
+    });
+  } catch(e) { console.warn('SharedDoc新カテゴリー同期失敗:', e); }
+}
+
+// カテゴリー削除時にsharedDocからのみ削除（ローカルは呼び出し元で管理）
+async function removeCategoryFromShared(catName) {
+  // 親カテゴリーを探す
+  let parentDocId = null;
+  for (const parent in categoryTree) {
+    if ((categoryTree[parent] || []).includes(catName)) {
+      const docId = findEditableSharedDocForCat(parent);
+      if (docId) { parentDocId = docId; break; }
+    }
+  }
+  // 直接ルートカテゴリーの場合
+  if (!parentDocId) {
+    const card = db.find(q => q.category === catName && q.sharedDocId);
+    if (card) {
+      const perm = sharedDocPermissions[card.sharedDocId];
+      if (perm && perm.canEdit) parentDocId = card.sharedDocId;
+    }
+  }
+  if (!parentDocId) return;
+  try {
+    const allSub = getAllSubcategories(catName);
+    // categoriesからallSubを削除
+    const snap = await firestore.collection('susuru_anki_shared').doc(parentDocId).get();
+    if (!snap.exists) return;
+    const data = snap.data();
+    const newCats = (data.categories || []).filter(c => !allSub.includes(c));
+    const newTree = Object.assign({}, data.categoryTree || {});
+    allSub.forEach(c => { delete newTree[c]; });
+    // 親のchildrenからも削除
+    for (const p in newTree) { newTree[p] = (newTree[p] || []).filter(c => !allSub.includes(c)); }
+    // カードはsharedDocから削除しない（ローカルのカードはローカルのまま）
+    await firestore.collection('susuru_anki_shared').doc(parentDocId).update({ categories: newCats, categoryTree: newTree });
+  } catch(e) { console.warn('SharedDocカテゴリー削除失敗:', e); }
 }

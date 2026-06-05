@@ -1,13 +1,13 @@
 // ----------------- 実績とグラフ -----------------
 function renderStatsAndCharts() {
-  const th = parseInt(document.getElementById('numGradThreshold').value) || 5;
   const t = db.length;
   document.getElementById('statTotal').innerText = t;
-  const cG = db.filter(q => q.correct >= th).length;
-  const cM = db.filter(q => q.correct < th && q.level >= 3).length;
-  const cN = db.filter(q => q.correct < th && q.level >= 1 && q.level <= 2).length;
-  const cW = db.filter(q => q.correct < th && q.level === 0 && (q.correct+q.incorrect)>0).length;
-  const cS = db.filter(q => q.correct < th && q.level === -1).length;
+  const isGraduatedCard = q => q.level >= 5 && (q.level5Correct || 0) >= 5;
+  const cG = db.filter(q => isGraduatedCard(q)).length;
+  const cM = db.filter(q => !isGraduatedCard(q) && q.level >= 3).length;
+  const cN = db.filter(q => !isGraduatedCard(q) && q.level >= 1 && q.level <= 2).length;
+  const cW = db.filter(q => !isGraduatedCard(q) && q.level === 0 && (q.correct+q.incorrect)>0).length;
+  const cS = db.filter(q => !isGraduatedCard(q) && q.level === -1).length;
   const cU = db.filter(q => q.correct === 0 && q.incorrect === 0 && q.level >= 0).length;
 
   document.getElementById('cntGrad').innerText = cG;

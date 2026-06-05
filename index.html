@@ -252,7 +252,6 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
       </div>
       <div class="form-row" style="margin-top:15px;">
         <div style="flex:1;"><label style="display:block; font-size:0.75rem; color:var(--text2); margin-bottom:4px;">出題数</label><input type="number" id="numQCount" class="form-control" value="10" min="1"></div>
-        <div style="flex:1;"><label style="display:block; font-size:0.75rem; color:var(--text2); margin-bottom:4px;">卒業認定正解数</label><input type="number" id="numGradThreshold" class="form-control" value="5" min="1"></div>
       </div>
     </div>
     <button class="btn" onclick="startQuiz('normal')">🚀 通常クイズスタート</button>
@@ -608,7 +607,18 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
       <p id="onlineMatchInfoText"></p>
     </div>
 
-    <button class="btn btn-secondary" style="margin-top:20px; width:100%;" onclick="openPage('pgStats')">戻る</button>
+    <button class="btn btn-secondary" style="margin-top:12px; width:100%;" onclick="openPage('pgMatchHistory'); renderMatchHistory();">📋 対戦履歴を見る</button>
+    <button class="btn btn-secondary" style="margin-top:10px; width:100%;" onclick="openPage('pgStats')">戻る</button>
+  </div>
+
+  <div id="pgMatchHistory" class="screen">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2>📋 対戦履歴</h2>
+      <button class="btn btn-secondary" style="width:auto; padding:8px 14px;" onclick="openPage('pgOnlineMatch')">戻る</button>
+    </div>
+    <div id="matchHistoryArea">
+      <div style="text-align:center; color:var(--text3); padding:30px 0;">対戦履歴がありません</div>
+    </div>
   </div>
 
   <div id="pgPublicCategories" class="screen">
@@ -616,6 +626,12 @@ body.light-mode .sync-status { background: rgba(255,255,255,0.9); }
     <div style="display:flex; gap:10px; margin-bottom:15px;">
       <input type="text" id="searchPublicCategories" class="form-control" placeholder="カテゴリー検索..." oninput="filterPublicCategories()">
       <button class="btn btn-secondary" style="width:auto; padding:12px 20px;" onclick="openPage('pgBox')">戻る</button>
+    </div>
+    <div id="myPublicCategoriesSection" style="display:none; margin-bottom:20px;">
+      <div class="card" style="border-color:var(--accent);">
+        <div class="setting-box-title" style="color:var(--accent);">📤 自分が公開中のカテゴリー</div>
+        <div id="myPublicCategoriesList"><div style="text-align:center; color:var(--text3); font-size:0.85rem;">読み込み中...</div></div>
+      </div>
     </div>
     <div id="publicCategoriesList"></div>
   </div>

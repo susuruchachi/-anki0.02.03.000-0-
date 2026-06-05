@@ -86,6 +86,9 @@ function handleCategoryLongpress(catName) {
       for(let g in categoryTree) { if(categoryTree[g]) categoryTree[g] = categoryTree[g].filter(c => c !== catName); }
       if(!categoryTree[p]) categoryTree[p] = []; categoryTree[p].push(catName);
       saveData(true); renderTree();
+      // ★【0.02.59-g】移動先・移動元どちらかがshared対象なら構造同期
+      const _mvDocId = findEditableSharedDocForCat(p) || findEditableSharedDocForCat(catName);
+      if (_mvDocId) syncSharedDocStructure(_mvDocId);
     }
   }));
 
@@ -101,6 +104,8 @@ function handleCategoryLongpress(catName) {
         categoryTree[catName].push(n.trim()); 
         deletedCats = deletedCats.filter(c => c !== n.trim());
         saveData(true); renderTree();
+        // ★【0.02.59-g】公開カテゴリーに同期
+        syncNewCategoryToShared(catName, n.trim());
       } },
     { html: '📝 この直下に問題を追加', action: () => { currentViewContext = { type: 'category', value: catName }; showAddQModal(); } },
     { type: 'separator' },
@@ -138,6 +143,8 @@ function handleCategoryLongpress(catName) {
           if (isSharedReadOnly) return alert("🔒 閲覧専用の共有カテゴリーはローカルから直接削除できません。（※不要になった場合はアプリをリセットするか個別に消去してください）");
           if(!confirm(`警告: 「${catName}」と中身を全て削除しますか？`)) return;
           const toDelete = getAllSubcategories(catName);
+          // ★【0.02.59-g】公開カテゴリーからのみ削除（ローカルの削除は後で行う）
+          removeCategoryFromShared(catName);
           deletedCats.push(...toDelete);
           db.forEach(q => { if(toDelete.includes(q.category)) deletedCards.push(q.id); });
           db = db.filter(q => !toDelete.includes(q.category)); categories = categories.filter(c => !toDelete.includes(c));
